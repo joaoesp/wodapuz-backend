@@ -1,0 +1,28 @@
+{
+  "kind": "collectionType",
+  "collectionName": "indicator_caches",
+  "info": {
+    "singularName": "indicator-cache",
+    "pluralName": "indicator-caches",
+    "displayName": "Indicator Cache"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "cacheKey": {
+      "type": "string",
+      "unique": true,
+      "required": true
+    },
+    "data": {
+      "type": "json",
+      "required": true
+    },
+    "fetchedAt": {
+      "type": "datetime",
+      "required": true
+    }
+  }
+}

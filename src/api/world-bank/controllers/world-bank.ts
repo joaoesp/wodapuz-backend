@@ -32,7 +32,8 @@ export default {
         indicatorCode,
         indicatorName,
         parseInt(startYear),
-        parseInt(endYear)
+        parseInt(endYear),
+        indicator === 'debt-to-gdp'
       );
       ctx.body = data;
     } catch (err) {
