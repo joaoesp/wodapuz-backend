@@ -2,7 +2,6 @@ const INDICATOR_CODES: Record<string, string> = {
   'gdp': 'NY.GDP.MKTP.CD',
   'gdp-growth': 'NY.GDP.MKTP.KD.ZG',
   'gdp-per-capita': 'NY.GDP.PCAP.CD',
-  'inflation': 'FP.CPI.TOTL.ZG',
   'current-account-balance': 'BN.CAB.XOKA.GD.ZS',
 };
 
@@ -10,7 +9,6 @@ const INDICATOR_NAMES: Record<string, string> = {
   'gdp': 'GDP',
   'gdp-growth': 'GDP Growth',
   'gdp-per-capita': 'GDP per Capita',
-  'inflation': 'Inflation',
   'current-account-balance': 'Current Account Balance',
 };
 
@@ -21,10 +19,14 @@ export default {
       const start = parseInt(startYear);
       const end = parseInt(endYear);
 
-      // Debt-to-GDP uses IMF as primary source
+      // IMF-sourced indicators
       if (indicator === 'debt-to-gdp') {
-        const data = await strapi.service('api::world-bank.world-bank').fetchDebtToGdpFromImf(start, end);
-        ctx.body = data;
+        ctx.body = await strapi.service('api::world-bank.world-bank').fetchDebtToGdpFromImf(start, end);
+        return;
+      }
+
+      if (indicator === 'inflation') {
+        ctx.body = await strapi.service('api::world-bank.world-bank').fetchInflationFromImf(start, end);
         return;
       }
 

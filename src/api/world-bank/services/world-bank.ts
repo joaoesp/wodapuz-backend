@@ -131,6 +131,48 @@ export default {
     }
   },
 
+  async fetchInflationFromImf(startYear: number, endYear: number) {
+    const cacheKey = `imf-inflation-primary-${startYear}-${endYear}`;
+
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const [json, countryNames] = await Promise.all([
+        fetch(`${IMF_DATAMAPPER_BASE_URL}/PCPIPCH`).then((r) => r.json()) as Promise<any>,
+        fetchImfCountryNames(),
+      ]);
+
+      const values = (json.values?.PCPIPCH || {}) as Record<string, Record<string, number>>;
+
+      const dataByYear: Record<string, any[]> = {};
+
+      for (const [countryCode, yearData] of Object.entries(values)) {
+        for (const [year, value] of Object.entries(yearData)) {
+          const yearNum = parseInt(year);
+          if (yearNum < startYear || yearNum > endYear || value === null) continue;
+
+          if (!dataByYear[year]) {
+            dataByYear[year] = [];
+          }
+          dataByYear[year].push({
+            countryCode,
+            countryName: countryNames[countryCode] || countryCode,
+            year,
+            value,
+            indicator: 'Inflation',
+          });
+        }
+      }
+
+      await setCached(cacheKey, dataByYear);
+      return dataByYear;
+    } catch (error) {
+      strapi.log.error('Error fetching Inflation from IMF:', error);
+      throw error;
+    }
+  },
+
   async fetchDebtToGdpFromImf(startYear: number, endYear: number) {
     const cacheKey = `imf-debt-to-gdp-primary-${startYear}-${endYear}`;
 
