@@ -3,6 +3,10 @@ const INDICATOR_CODES: Record<string, string> = {
   'gdp-growth': 'NY.GDP.MKTP.KD.ZG',
   'gdp-per-capita': 'NY.GDP.PCAP.CD',
   'current-account-balance': 'BN.CAB.XOKA.GD.ZS',
+  'trade-openness': 'NE.TRD.GNFS.ZS',
+  'exports': 'NE.EXP.GNFS.ZS',
+  'imports': 'NE.IMP.GNFS.ZS',
+  'trade-balance': 'BN.GSR.GNFS.CD',
 };
 
 const INDICATOR_NAMES: Record<string, string> = {
@@ -10,6 +14,10 @@ const INDICATOR_NAMES: Record<string, string> = {
   'gdp-growth': 'GDP Growth',
   'gdp-per-capita': 'GDP per Capita',
   'current-account-balance': 'Current Account Balance',
+  'trade-openness': 'Trade Openness',
+  'exports': 'Exports',
+  'imports': 'Imports',
+  'trade-balance': 'Trade Balance',
 };
 
 export default {
