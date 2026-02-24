@@ -85,33 +85,9 @@ async function fetchImfCountryNames(): Promise<Record<string, string>> {
   return names;
 }
 
-async function fetchImfDebtToGdp(startYear: number, endYear: number): Promise<Record<string, Record<string, number>>> {
-  const cacheKey = `imf-ggxwdg-range-${startYear}-${endYear}`;
-  const cached = await getCached(cacheKey);
-  if (cached) return cached;
-
-  const response = await fetch(`${IMF_DATAMAPPER_BASE_URL}/GGXWDG_NGDP`);
-  const json = (await response.json()) as any;
-  const values = (json.values?.GGXWDG_NGDP || {}) as Record<string, Record<string, number>>;
-
-  const result: Record<string, Record<string, number>> = {};
-  for (const [countryCode, yearData] of Object.entries(values)) {
-    result[countryCode] = {};
-    for (const [year, value] of Object.entries(yearData)) {
-      const yearNum = parseInt(year);
-      if (yearNum >= startYear && yearNum <= endYear && value !== null) {
-        result[countryCode][year] = value;
-      }
-    }
-  }
-
-  await setCached(cacheKey, result);
-  return result;
-}
-
 export default {
-  async fetchIndicatorYearRange(indicatorCode: string, indicatorName: string, startYear: number, endYear: number, supplementWithImf = false) {
-    const cacheKey = `${indicatorCode}-range-${startYear}-${endYear}${supplementWithImf ? '-imf-merged' : ''}`;
+  async fetchIndicatorYearRange(indicatorCode: string, indicatorName: string, startYear: number, endYear: number) {
+    const cacheKey = `${indicatorCode}-range-${startYear}-${endYear}`;
 
     const cached = await getCached(cacheKey);
     if (cached) return cached;
@@ -129,9 +105,7 @@ export default {
       const jsonData = await response.json();
       const data = jsonData[1] || [];
 
-      // Group data by year, tracking which (year, countryCode) pairs World Bank has
       const dataByYear: Record<string, any[]> = {};
-      const wbPairs = new Set<string>();
 
       data
         .filter((item: any) => item.value !== null)
@@ -147,38 +121,54 @@ export default {
             value: item.value,
             indicator: indicatorName,
           });
-          wbPairs.add(`${year}-${item.countryiso3code}`);
         });
 
-      // Supplement with IMF data, filling in country-year pairs missing from World Bank
-      if (supplementWithImf) {
-        const [imfData, imfCountryNames] = await Promise.all([
-          fetchImfDebtToGdp(startYear, endYear),
-          fetchImfCountryNames(),
-        ]);
+      await setCached(cacheKey, dataByYear);
+      return dataByYear;
+    } catch (error) {
+      strapi.log.error(`Error fetching ${indicatorName} year range:`, error);
+      throw error;
+    }
+  },
 
-        for (const [countryCode, yearData] of Object.entries(imfData)) {
-          for (const [year, value] of Object.entries(yearData)) {
-            if (!wbPairs.has(`${year}-${countryCode}`)) {
-              if (!dataByYear[year]) {
-                dataByYear[year] = [];
-              }
-              dataByYear[year].push({
-                countryCode,
-                countryName: imfCountryNames[countryCode] || countryCode,
-                year,
-                value,
-                indicator: indicatorName,
-              });
-            }
+  async fetchDebtToGdpFromImf(startYear: number, endYear: number) {
+    const cacheKey = `imf-debt-to-gdp-primary-${startYear}-${endYear}`;
+
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const [json, countryNames] = await Promise.all([
+        fetch(`${IMF_DATAMAPPER_BASE_URL}/GGXWDG_NGDP`).then((r) => r.json()) as Promise<any>,
+        fetchImfCountryNames(),
+      ]);
+
+      const values = (json.values?.GGXWDG_NGDP || {}) as Record<string, Record<string, number>>;
+
+      const dataByYear: Record<string, any[]> = {};
+
+      for (const [countryCode, yearData] of Object.entries(values)) {
+        for (const [year, value] of Object.entries(yearData)) {
+          const yearNum = parseInt(year);
+          if (yearNum < startYear || yearNum > endYear || value === null) continue;
+
+          if (!dataByYear[year]) {
+            dataByYear[year] = [];
           }
+          dataByYear[year].push({
+            countryCode,
+            countryName: countryNames[countryCode] || countryCode,
+            year,
+            value,
+            indicator: 'Debt-to-GDP',
+          });
         }
       }
 
       await setCached(cacheKey, dataByYear);
       return dataByYear;
     } catch (error) {
-      strapi.log.error(`Error fetching ${indicatorName} year range:`, error);
+      strapi.log.error('Error fetching Debt-to-GDP from IMF:', error);
       throw error;
     }
   },
