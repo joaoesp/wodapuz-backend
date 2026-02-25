@@ -1,5 +1,4 @@
 const COMTRADE_BASE_URL = 'https://comtradeapi.un.org/data/v1/get/C/A/HS';
-const CACHE_DURATION = 1000 * 60 * 60 * 24; // 24 hours
 
 // ISO 3-letter → UN Comtrade M49 numeric reporter codes
 const ISO3_TO_M49: Record<string, string> = {
@@ -33,59 +32,69 @@ const ISO3_TO_M49: Record<string, string> = {
   VNM: '704', YEM: '887', ZMB: '894', ZWE: '716',
 };
 
-interface CacheEntry {
-  data: any;
-  timestamp: number;
-}
+const memoryCache = new Map<string, any>();
 
-const memoryCache = new Map<string, CacheEntry>();
-
-function isStale(timestamp: number): boolean {
-  return Date.now() - timestamp > CACHE_DURATION;
-}
-
-async function getFromDb(cacheKey: string): Promise<CacheEntry | null> {
+async function getCached(cacheKey: string): Promise<any | null> {
+  if (memoryCache.has(cacheKey)) return memoryCache.get(cacheKey);
   const entry = await strapi.db
     .query('api::indicator-cache.indicator-cache')
     .findOne({ where: { cacheKey } });
   if (!entry) return null;
-  return { data: entry.data, timestamp: new Date(entry.fetchedAt).getTime() };
-}
-
-async function saveToDb(cacheKey: string, data: any): Promise<void> {
-  const existing = await strapi.db
-    .query('api::indicator-cache.indicator-cache')
-    .findOne({ where: { cacheKey } });
-  const fetchedAt = new Date().toISOString();
-  if (existing) {
-    await strapi.db
-      .query('api::indicator-cache.indicator-cache')
-      .update({ where: { id: existing.id }, data: { data, fetchedAt } });
-  } else {
-    await strapi.db
-      .query('api::indicator-cache.indicator-cache')
-      .create({ data: { cacheKey, data, fetchedAt } });
-  }
-}
-
-async function getCached(cacheKey: string): Promise<any | null> {
-  const mem = memoryCache.get(cacheKey);
-  if (mem && !isStale(mem.timestamp)) return mem.data;
-  const db = await getFromDb(cacheKey);
-  if (db && !isStale(db.timestamp)) {
-    memoryCache.set(cacheKey, db);
-    return db.data;
-  }
-  return null;
+  memoryCache.set(cacheKey, entry.data);
+  return entry.data;
 }
 
 async function setCached(cacheKey: string, data: any): Promise<void> {
-  const entry: CacheEntry = { data, timestamp: Date.now() };
-  memoryCache.set(cacheKey, entry);
-  await saveToDb(cacheKey, data);
+  memoryCache.set(cacheKey, data);
+  const existing = await strapi.db
+    .query('api::indicator-cache.indicator-cache')
+    .findOne({ where: { cacheKey } });
+  if (existing) {
+    await strapi.db
+      .query('api::indicator-cache.indicator-cache')
+      .update({ where: { id: existing.id }, data: { data, fetchedAt: new Date().toISOString() } });
+  } else {
+    await strapi.db
+      .query('api::indicator-cache.indicator-cache')
+      .create({ data: { cacheKey, data, fetchedAt: new Date().toISOString() } });
+  }
 }
 
 export default {
+  async fetchProductHistory(iso3: string, partnerIso3: string, flow: string, hsCode: string) {
+    const cacheKey = `comtrade-history-${iso3}-${partnerIso3}-${hsCode}-${flow}`;
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    const m49 = ISO3_TO_M49[iso3];
+    if (!m49) throw new Error(`No M49 code for ISO3: ${iso3}`);
+
+    const partnerM49 = ISO3_TO_M49[partnerIso3];
+    if (!partnerM49) throw new Error(`No M49 code for partner ISO3: ${partnerIso3}`);
+
+    const apiKey = process.env.UN_COMTRADE_API_KEY;
+    if (!apiKey) throw new Error('UN_COMTRADE_API_KEY not configured');
+
+    const periods = '2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023';
+    const res = await fetch(
+      `${COMTRADE_BASE_URL}?reporterCode=${m49}&period=${periods}&flowCode=${flow}&partnerCode=${partnerM49}&cmdCode=${hsCode}&includeDesc=true&subscription-key=${apiKey}`
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Comtrade product history error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as any;
+
+    const history = ((json.data || []) as any[])
+      .map((r: any) => ({ year: Number(r.period), value: r.primaryValue as number }))
+      .filter((d) => d.value > 0)
+      .sort((a, b) => a.year - b.year);
+
+    const result = { history, hsCode, flow, iso3, partnerIso3 };
+    await setCached(cacheKey, result);
+    return result;
+  },
+
   async fetchPartnerProducts(iso3: string, partnerIso3: string, flow: string, year: number) {
     const cacheKey = `comtrade-partner-${iso3}-${partnerIso3}-${flow}-${year}`;
     const cached = await getCached(cacheKey);

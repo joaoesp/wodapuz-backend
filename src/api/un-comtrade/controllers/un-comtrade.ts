@@ -16,6 +16,22 @@ export default {
     }
   },
 
+  async getProductHistory(ctx) {
+    try {
+      const { iso3, flow, partnerIso3, hsCode } = ctx.params;
+
+      if (!['X', 'M'].includes(flow)) {
+        ctx.throw(400, 'flow must be X (exports) or M (imports)');
+      }
+
+      ctx.body = await strapi
+        .service('api::un-comtrade.un-comtrade')
+        .fetchProductHistory(iso3.toUpperCase(), partnerIso3.toUpperCase(), flow, hsCode);
+    } catch (err) {
+      ctx.throw(500, err);
+    }
+  },
+
   async getPartnerProducts(ctx) {
     try {
       const { iso3, flow, year, partnerIso3 } = ctx.params;
