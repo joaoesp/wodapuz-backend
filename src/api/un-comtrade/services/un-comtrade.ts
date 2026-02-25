@@ -13,7 +13,7 @@ const ISO3_TO_M49: Record<string, string> = {
   FJI: '242', FIN: '246', FRA: '250', GAB: '266', GMB: '270', GEO: '268',
   DEU: '276', GHA: '288', GRC: '300', GRL: '304', GTM: '320', GIN: '324',
   GNB: '624', GUY: '328', HTI: '332', HND: '340', HKG: '344', HUN: '348',
-  ISL: '352', IND: '356', IDN: '360', IRN: '364', IRQ: '368', IRL: '372',
+  ISL: '352', IND: '699', IDN: '360', IRN: '364', IRQ: '368', IRL: '372', // IND: Comtrade uses 699 (M49 356 expired 1974)
   ISR: '376', ITA: '380', CIV: '384', JAM: '388', JPN: '392', JOR: '400',
   KAZ: '398', KEN: '404', KWT: '414', KGZ: '417', LAO: '418', LVA: '428',
   LBN: '422', LSO: '426', LBR: '430', LBY: '434', LTU: '440', LUX: '442',
