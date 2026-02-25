@@ -85,9 +85,14 @@ export default {
     }
     const json = (await res.json()) as any;
 
-    const history = ((json.data || []) as any[])
-      .map((r: any) => ({ year: Number(r.period), value: r.primaryValue as number }))
-      .filter((d) => d.value > 0)
+    const yearMap = new Map<number, number>();
+    for (const r of (json.data || []) as any[]) {
+      if (!(r.primaryValue > 0)) continue;
+      const yr = Number(r.period);
+      yearMap.set(yr, (yearMap.get(yr) ?? 0) + r.primaryValue);
+    }
+    const history = Array.from(yearMap.entries())
+      .map(([year, value]) => ({ year, value }))
       .sort((a, b) => a.year - b.year);
 
     const result = { history, hsCode, flow, iso3, partnerIso3 };
