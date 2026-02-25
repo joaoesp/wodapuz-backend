@@ -86,6 +86,46 @@ async function setCached(cacheKey: string, data: any): Promise<void> {
 }
 
 export default {
+  async fetchPartnerProducts(iso3: string, partnerIso3: string, flow: string, year: number) {
+    const cacheKey = `comtrade-partner-${iso3}-${partnerIso3}-${flow}-${year}`;
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    const m49 = ISO3_TO_M49[iso3];
+    if (!m49) throw new Error(`No M49 code for ISO3: ${iso3}`);
+
+    const partnerM49 = ISO3_TO_M49[partnerIso3];
+    if (!partnerM49) throw new Error(`No M49 code for partner ISO3: ${partnerIso3}`);
+
+    const apiKey = process.env.UN_COMTRADE_API_KEY;
+    if (!apiKey) throw new Error('UN_COMTRADE_API_KEY not configured');
+
+    const res = await fetch(
+      `${COMTRADE_BASE_URL}?reporterCode=${m49}&period=${year}&flowCode=${flow}&partnerCode=${partnerM49}&cmdCode=AG2&includeDesc=true&subscription-key=${apiKey}`
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Comtrade partner-products error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as any;
+
+    const productMap = new Map<string, { code: string; name: string; value: number }>();
+    for (const r of (json.data || []) as any[]) {
+      if (String(r.cmdCode).length !== 2 || !(r.primaryValue > 0)) continue;
+      const existing = productMap.get(r.cmdCode);
+      if (!existing || r.primaryValue > existing.value) {
+        productMap.set(r.cmdCode, { code: r.cmdCode, name: r.cmdDesc, value: r.primaryValue });
+      }
+    }
+    const products = Array.from(productMap.values())
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const result = { products, flow, year, iso3, partnerIso3 };
+    await setCached(cacheKey, result);
+    return result;
+  },
+
   async fetchTradeData(iso3: string, flow: string, year: number) {
     const cacheKey = `comtrade-${iso3}-${flow}-${year}`;
     const cached = await getCached(cacheKey);
@@ -120,27 +160,33 @@ export default {
     }
     const productsJson = (await productsRes.json()) as any;
 
-    // Partners: exclude world aggregate (partnerISO W00), sort by value, top 10
-    const partners = ((partnersJson.data || []) as any[])
-      .filter((r: any) => r.partnerISO !== 'W00' && r.primaryValue > 0)
-      .sort((a: any, b: any) => b.primaryValue - a.primaryValue)
-      .slice(0, 10)
-      .map((r: any) => ({
-        name: r.partnerDesc,
-        iso: r.partnerISO,
-        value: r.primaryValue,
-      }));
+    // Partners: exclude world aggregate (W00), deduplicate by partnerISO (sum values), top 10
+    const partnerMap = new Map<string, { name: string; iso: string; value: number }>();
+    for (const r of (partnersJson.data || []) as any[]) {
+      if (r.partnerISO === 'W00' || !(r.primaryValue > 0)) continue;
+      const existing = partnerMap.get(r.partnerISO);
+      if (existing) {
+        existing.value += r.primaryValue;
+      } else {
+        partnerMap.set(r.partnerISO, { name: r.partnerDesc, iso: r.partnerISO, value: r.primaryValue });
+      }
+    }
+    const partners = Array.from(partnerMap.values())
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
 
-    // Products: exclude aggregate rows (cmdCode TOTAL), sort by value, top 10
-    const products = ((productsJson.data || []) as any[])
-      .filter((r: any) => r.cmdCode !== 'TOTAL' && r.primaryValue > 0)
-      .sort((a: any, b: any) => b.primaryValue - a.primaryValue)
-      .slice(0, 10)
-      .map((r: any) => ({
-        code: r.cmdCode,
-        name: r.cmdDesc,
-        value: r.primaryValue,
-      }));
+    // Products: keep only HS 2-digit codes (exactly 2 chars), deduplicate by cmdCode (keep highest value), top 10
+    const productMap = new Map<string, { code: string; name: string; value: number }>();
+    for (const r of (productsJson.data || []) as any[]) {
+      if (String(r.cmdCode).length !== 2 || !(r.primaryValue > 0)) continue;
+      const existing = productMap.get(r.cmdCode);
+      if (!existing || r.primaryValue > existing.value) {
+        productMap.set(r.cmdCode, { code: r.cmdCode, name: r.cmdDesc, value: r.primaryValue });
+      }
+    }
+    const products = Array.from(productMap.values())
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
 
     // Total exports/imports value (world aggregate row)
     const worldRow = ((partnersJson.data || []) as any[]).find(
