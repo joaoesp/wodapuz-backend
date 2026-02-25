@@ -7,6 +7,8 @@ const INDICATOR_CODES: Record<string, string> = {
   'exports': 'NE.EXP.GNFS.ZS',
   'imports': 'NE.IMP.GNFS.ZS',
   'trade-balance': 'BN.GSR.GNFS.CD',
+  'defense-spending': 'MS.MIL.XPND.CD',
+  'active-personnel': 'MS.MIL.TOTL.P1',
 };
 
 const INDICATOR_NAMES: Record<string, string> = {
@@ -18,6 +20,8 @@ const INDICATOR_NAMES: Record<string, string> = {
   'exports': 'Exports',
   'imports': 'Imports',
   'trade-balance': 'Trade Balance',
+  'defense-spending': 'Defense Spending',
+  'active-personnel': 'Active Personnel',
 };
 
 export default {
