@@ -1,70 +1,41 @@
 const WORLD_BANK_BASE_URL = 'https://api.worldbank.org/v2';
 const IMF_DATAMAPPER_BASE_URL = 'https://www.imf.org/external/datamapper/api/v1';
-const CACHE_DURATION = 1000 * 60 * 60 * 24; // 24 hours
 
 // L1: in-memory cache to avoid redundant DB round-trips
-interface CacheEntry {
-  data: any;
-  timestamp: number;
-}
-
-const memoryCache = new Map<string, CacheEntry>();
-
-function isStale(timestamp: number): boolean {
-  return Date.now() - timestamp > CACHE_DURATION;
-}
-
-async function getFromDb(cacheKey: string): Promise<CacheEntry | null> {
-  const entry = await strapi.db.query('api::indicator-cache.indicator-cache').findOne({
-    where: { cacheKey },
-  });
-
-  if (!entry) return null;
-
-  const timestamp = new Date(entry.fetchedAt).getTime();
-  return { data: entry.data, timestamp };
-}
-
-async function saveToDb(cacheKey: string, data: any): Promise<void> {
-  const existing = await strapi.db.query('api::indicator-cache.indicator-cache').findOne({
-    where: { cacheKey },
-  });
-
-  const fetchedAt = new Date().toISOString();
-
-  if (existing) {
-    await strapi.db.query('api::indicator-cache.indicator-cache').update({
-      where: { id: existing.id },
-      data: { data, fetchedAt },
-    });
-  } else {
-    await strapi.db.query('api::indicator-cache.indicator-cache').create({
-      data: { cacheKey, data, fetchedAt },
-    });
-  }
-}
+const memoryCache = new Map<string, any>();
 
 async function getCached(cacheKey: string): Promise<any | null> {
   // L1: memory
-  const mem = memoryCache.get(cacheKey);
-  if (mem && !isStale(mem.timestamp)) {
-    return mem.data;
-  }
+  if (memoryCache.has(cacheKey)) return memoryCache.get(cacheKey);
 
   // L2: database
-  const db = await getFromDb(cacheKey);
-  if (db && !isStale(db.timestamp)) {
-    memoryCache.set(cacheKey, db);
-    return db.data;
+  const entry = await strapi.db.query('api::indicator-cache.indicator-cache').findOne({
+    where: { cacheKey },
+  });
+  if (entry) {
+    memoryCache.set(cacheKey, entry.data);
+    return entry.data;
   }
 
   return null;
 }
 
 async function setCached(cacheKey: string, data: any): Promise<void> {
-  const entry: CacheEntry = { data, timestamp: Date.now() };
-  memoryCache.set(cacheKey, entry);
-  await saveToDb(cacheKey, data);
+  memoryCache.set(cacheKey, data);
+
+  const existing = await strapi.db.query('api::indicator-cache.indicator-cache').findOne({
+    where: { cacheKey },
+  });
+  if (existing) {
+    await strapi.db.query('api::indicator-cache.indicator-cache').update({
+      where: { id: existing.id },
+      data: { data, fetchedAt: new Date().toISOString() },
+    });
+  } else {
+    await strapi.db.query('api::indicator-cache.indicator-cache').create({
+      data: { cacheKey, data, fetchedAt: new Date().toISOString() },
+    });
+  }
 }
 
 async function fetchImfCountryNames(): Promise<Record<string, string>> {

@@ -1,58 +1,40 @@
 const GFP_BASE_URL = 'https://www.globalfirepower.com';
-const CACHE_DURATION = 1000 * 60 * 60 * 24; // 24 hours
 
-interface CacheEntry {
-  data: any;
-  timestamp: number;
-}
+// L1: in-memory cache to avoid redundant DB round-trips
+const memoryCache = new Map<string, any>();
 
-const memoryCache = new Map<string, CacheEntry>();
+async function getCached(cacheKey: string): Promise<any | null> {
+  // L1: memory
+  if (memoryCache.has(cacheKey)) return memoryCache.get(cacheKey);
 
-function isStale(timestamp: number): boolean {
-  return Date.now() - timestamp > CACHE_DURATION;
-}
-
-async function getFromDb(cacheKey: string): Promise<CacheEntry | null> {
+  // L2: database
   const entry = await strapi.db.query('api::indicator-cache.indicator-cache').findOne({
     where: { cacheKey },
   });
-  if (!entry) return null;
-  const timestamp = new Date(entry.fetchedAt).getTime();
-  return { data: entry.data, timestamp };
-}
-
-async function saveToDb(cacheKey: string, data: any): Promise<void> {
-  const existing = await strapi.db.query('api::indicator-cache.indicator-cache').findOne({
-    where: { cacheKey },
-  });
-  const fetchedAt = new Date().toISOString();
-  if (existing) {
-    await strapi.db.query('api::indicator-cache.indicator-cache').update({
-      where: { id: existing.id },
-      data: { data, fetchedAt },
-    });
-  } else {
-    await strapi.db.query('api::indicator-cache.indicator-cache').create({
-      data: { cacheKey, data, fetchedAt },
-    });
+  if (entry) {
+    memoryCache.set(cacheKey, entry.data);
+    return entry.data;
   }
-}
 
-async function getCached(cacheKey: string): Promise<any | null> {
-  const mem = memoryCache.get(cacheKey);
-  if (mem && !isStale(mem.timestamp)) return mem.data;
-  const db = await getFromDb(cacheKey);
-  if (db && !isStale(db.timestamp)) {
-    memoryCache.set(cacheKey, db);
-    return db.data;
-  }
   return null;
 }
 
 async function setCached(cacheKey: string, data: any): Promise<void> {
-  const entry: CacheEntry = { data, timestamp: Date.now() };
-  memoryCache.set(cacheKey, entry);
-  await saveToDb(cacheKey, data);
+  memoryCache.set(cacheKey, data);
+
+  const existing = await strapi.db.query('api::indicator-cache.indicator-cache').findOne({
+    where: { cacheKey },
+  });
+  if (existing) {
+    await strapi.db.query('api::indicator-cache.indicator-cache').update({
+      where: { id: existing.id },
+      data: { data, fetchedAt: new Date().toISOString() },
+    });
+  } else {
+    await strapi.db.query('api::indicator-cache.indicator-cache').create({
+      data: { cacheKey, data, fetchedAt: new Date().toISOString() },
+    });
+  }
 }
 
 // GFP slug → ISO3 mapping (145 countries)

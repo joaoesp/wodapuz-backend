@@ -32,20 +32,28 @@ const ISO3_TO_M49: Record<string, string> = {
   VNM: '704', YEM: '887', ZMB: '894', ZWE: '716',
 };
 
+// L1: in-memory cache to avoid redundant DB round-trips
 const memoryCache = new Map<string, any>();
 
 async function getCached(cacheKey: string): Promise<any | null> {
+  // L1: memory
   if (memoryCache.has(cacheKey)) return memoryCache.get(cacheKey);
+
+  // L2: database
   const entry = await strapi.db
     .query('api::indicator-cache.indicator-cache')
     .findOne({ where: { cacheKey } });
-  if (!entry) return null;
-  memoryCache.set(cacheKey, entry.data);
-  return entry.data;
+  if (entry) {
+    memoryCache.set(cacheKey, entry.data);
+    return entry.data;
+  }
+
+  return null;
 }
 
 async function setCached(cacheKey: string, data: any): Promise<void> {
   memoryCache.set(cacheKey, data);
+
   const existing = await strapi.db
     .query('api::indicator-cache.indicator-cache')
     .findOne({ where: { cacheKey } });
