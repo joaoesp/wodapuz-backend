@@ -148,6 +148,209 @@ export default {
     return result;
   },
 
+  async fetchEnergyTypeBreakdown(iso3: string, flow: string, year: number) {
+    const cacheKey = `comtrade-energy-types-${iso3}-${flow}-${year}`;
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    const m49 = ISO3_TO_M49[iso3];
+    if (!m49) throw new Error(`No M49 code for ISO3: ${iso3}`);
+
+    const apiKey = process.env.UN_COMTRADE_API_KEY;
+    if (!apiKey) throw new Error('UN_COMTRADE_API_KEY not configured');
+
+    // Use specific HS4 codes with partnerCode=0 (world aggregate) and pick the latest
+    // HS revision (H5 → H0) — matching the same revision logic used in
+    // fetchEnergyTypePartners so left-panel totals are consistent with right-panel totals.
+    const HS4_CODES = '2701,2709,2710,2711,2716';
+    const res = await fetch(
+      `${COMTRADE_BASE_URL}?reporterCode=${m49}&period=${year}&flowCode=${flow}&partnerCode=0&cmdCode=${HS4_CODES}&includeDesc=true&subscription-key=${apiKey}`
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Comtrade energy type breakdown error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as any;
+
+    const HS_REVISIONS = ['H5', 'H4', 'H3', 'H2', 'H1', 'H0'];
+    // Group by code + HS revision, then pick latest revision per code
+    const codeRevMap = new Map<string, { name: string; byRev: Map<string, number> }>();
+    for (const r of (json.data || []) as any[]) {
+      const code = String(r.cmdCode);
+      if (!code.startsWith('27') || code.length !== 4 || !(r.primaryValue > 0)) continue;
+      const cls: string = r.classCode ?? 'H0';
+      if (!codeRevMap.has(code)) codeRevMap.set(code, { name: r.cmdDesc, byRev: new Map() });
+      const entry = codeRevMap.get(code)!;
+      if ((entry.byRev.get(cls) ?? 0) < r.primaryValue) entry.byRev.set(cls, r.primaryValue);
+    }
+    const productMap = new Map<string, { code: string; name: string; value: number }>();
+    for (const [code, entry] of codeRevMap.entries()) {
+      for (const rev of HS_REVISIONS) {
+        if (entry.byRev.has(rev)) {
+          productMap.set(code, { code, name: entry.name, value: entry.byRev.get(rev)! });
+          break;
+        }
+      }
+    }
+    const products = Array.from(productMap.values()).sort((a, b) => b.value - a.value);
+
+    const result = { products, flow, year, iso3 };
+    await setCached(cacheKey, result);
+    return result;
+  },
+
+  async fetchEnergyTypePartners(iso3: string, hs4Code: string, flow: string, year: number) {
+    const cacheKey = `comtrade-energy-type-partners-${iso3}-${hs4Code}-${flow}-${year}`;
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    const m49 = ISO3_TO_M49[iso3];
+    if (!m49) throw new Error(`No M49 code for ISO3: ${iso3}`);
+
+    const apiKey = process.env.UN_COMTRADE_API_KEY;
+    if (!apiKey) throw new Error('UN_COMTRADE_API_KEY not configured');
+
+    const res = await fetch(
+      `${COMTRADE_BASE_URL}?reporterCode=${m49}&period=${year}&flowCode=${flow}&cmdCode=${hs4Code}&includeDesc=true&subscription-key=${apiKey}`
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Comtrade energy type partners error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as any;
+
+    // Comtrade returns one row per bilateral pair per HS classification revision
+    // (H0=HS1992 … H5=HS2017). For commodities with many sub-codes (gas, petroleum
+    // products), older revisions cover broader definitions and report higher values.
+    // We must pick the LATEST available revision per partner (H5 → H4 → … → H0)
+    // to stay consistent with the AG4+partnerCode=0 query used on the left panel.
+    const HS_REVISIONS = ['H5', 'H4', 'H3', 'H2', 'H1', 'H0'];
+
+    type RevMap = Map<string, { name: string; iso: string; value: number }>;
+    const partnerRevMap = new Map<string, RevMap>();   // partnerISO → classCode → row
+    const worldByRev = new Map<string, number>();       // classCode → highest W00 value
+
+    for (const r of (json.data || []) as any[]) {
+      if (String(r.cmdCode) !== hs4Code || !(r.primaryValue > 0)) continue;
+      const cls: string = r.classCode ?? 'H0';
+
+      if (r.partnerISO === 'W00') {
+        if ((worldByRev.get(cls) ?? 0) < r.primaryValue) worldByRev.set(cls, r.primaryValue);
+        continue;
+      }
+
+      if (!partnerRevMap.has(r.partnerISO)) partnerRevMap.set(r.partnerISO, new Map());
+      const revMap = partnerRevMap.get(r.partnerISO)!;
+      const existing = revMap.get(cls);
+      if (!existing || r.primaryValue > existing.value) {
+        revMap.set(cls, { name: r.partnerDesc, iso: r.partnerISO, value: r.primaryValue });
+      }
+    }
+
+    // Pick the latest revision available for each partner
+    const partnerMap = new Map<string, { name: string; iso: string; value: number }>();
+    for (const [partnerISO, revMap] of partnerRevMap.entries()) {
+      for (const rev of HS_REVISIONS) {
+        if (revMap.has(rev)) { partnerMap.set(partnerISO, revMap.get(rev)!); break; }
+      }
+    }
+
+    // Pick the latest revision for the world total
+    let worldTotal = 0;
+    for (const rev of HS_REVISIONS) {
+      if (worldByRev.has(rev)) { worldTotal = worldByRev.get(rev)!; break; }
+    }
+
+    const partners = Array.from(partnerMap.values())
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const result = { partners, worldTotal, hs4Code, flow, year, iso3 };
+    await setCached(cacheKey, result);
+    return result;
+  },
+
+  async fetchEnergyPartnerBreakdown(iso3: string, partnerIso3: string, flow: string, year: number) {
+    const cacheKey = `comtrade-energy-breakdown-${iso3}-${partnerIso3}-${flow}-${year}`;
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    const m49 = ISO3_TO_M49[iso3];
+    if (!m49) throw new Error(`No M49 code for ISO3: ${iso3}`);
+
+    const partnerM49 = ISO3_TO_M49[partnerIso3];
+    if (!partnerM49) throw new Error(`No M49 code for partner ISO3: ${partnerIso3}`);
+
+    const apiKey = process.env.UN_COMTRADE_API_KEY;
+    if (!apiKey) throw new Error('UN_COMTRADE_API_KEY not configured');
+
+    const res = await fetch(
+      `${COMTRADE_BASE_URL}?reporterCode=${m49}&period=${year}&flowCode=${flow}&partnerCode=${partnerM49}&cmdCode=AG4&includeDesc=true&subscription-key=${apiKey}`
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Comtrade energy breakdown error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as any;
+
+    const productMap = new Map<string, { code: string; name: string; value: number }>();
+    for (const r of (json.data || []) as any[]) {
+      const code = String(r.cmdCode);
+      if (!code.startsWith('27') || code.length !== 4 || !(r.primaryValue > 0)) continue;
+      const existing = productMap.get(code);
+      if (!existing || r.primaryValue > existing.value) {
+        productMap.set(code, { code, name: r.cmdDesc, value: r.primaryValue });
+      }
+    }
+    const products = Array.from(productMap.values()).sort((a, b) => b.value - a.value);
+
+    const result = { products, flow, year, iso3, partnerIso3 };
+    await setCached(cacheKey, result);
+    return result;
+  },
+
+  async fetchEnergyTradeData(iso3: string, flow: string, year: number) {
+    const cacheKey = `comtrade-energy-${iso3}-${flow}-${year}`;
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
+
+    const m49 = ISO3_TO_M49[iso3];
+    if (!m49) throw new Error(`No M49 code for ISO3: ${iso3}`);
+
+    const apiKey = process.env.UN_COMTRADE_API_KEY;
+    if (!apiKey) throw new Error('UN_COMTRADE_API_KEY not configured');
+
+    const res = await fetch(
+      `${COMTRADE_BASE_URL}?reporterCode=${m49}&period=${year}&flowCode=${flow}&cmdCode=27&includeDesc=true&subscription-key=${apiKey}`
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Comtrade energy trade error ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as any;
+
+    // Only count the chapter-27 aggregate row per partner (cmdCode === '27').
+    // Comtrade returns sub-level rows (HS4, HS6) alongside the chapter aggregate;
+    // summing all of them causes massive double-counting.
+    const partnerMap = new Map<string, { name: string; iso: string; value: number }>();
+    for (const r of (json.data || []) as any[]) {
+      if (String(r.cmdCode) !== '27' || r.partnerISO === 'W00' || !(r.primaryValue > 0)) continue;
+      const existing = partnerMap.get(r.partnerISO);
+      if (existing) {
+        existing.value += r.primaryValue;
+      } else {
+        partnerMap.set(r.partnerISO, { name: r.partnerDesc, iso: r.partnerISO, value: r.primaryValue });
+      }
+    }
+    const partners = Array.from(partnerMap.values())
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const result = { partners, flow, year, iso3 };
+    await setCached(cacheKey, result);
+    return result;
+  },
+
   async fetchTradeData(iso3: string, flow: string, year: number) {
     const cacheKey = `comtrade-${iso3}-${flow}-${year}`;
     const cached = await getCached(cacheKey);

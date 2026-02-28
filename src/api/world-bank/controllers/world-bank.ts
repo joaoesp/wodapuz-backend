@@ -9,6 +9,7 @@ const INDICATOR_CODES: Record<string, string> = {
   'trade-balance': 'BN.GSR.GNFS.CD',
   'defense-spending': 'MS.MIL.XPND.CD',
   'active-personnel': 'MS.MIL.TOTL.P1',
+  'net-energy-balance': 'EG.IMP.CONS.ZS',
 };
 
 const INDICATOR_NAMES: Record<string, string> = {
@@ -22,6 +23,7 @@ const INDICATOR_NAMES: Record<string, string> = {
   'trade-balance': 'Trade Balance',
   'defense-spending': 'Defense Spending',
   'active-personnel': 'Active Personnel',
+  'net-energy-balance': 'Net Energy Balance',
 };
 
 export default {
