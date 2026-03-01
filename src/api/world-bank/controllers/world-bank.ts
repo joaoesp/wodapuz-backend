@@ -10,6 +10,8 @@ const INDICATOR_CODES: Record<string, string> = {
   'defense-spending': 'MS.MIL.XPND.CD',
   'active-personnel': 'MS.MIL.TOTL.P1',
   'net-energy-balance': 'EG.IMP.CONS.ZS',
+  'arable-land': 'AG.LND.ARBL.HA.PC',
+  'freshwater-resources': 'ER.H2O.INTR.PC',
 };
 
 const INDICATOR_NAMES: Record<string, string> = {
@@ -24,6 +26,8 @@ const INDICATOR_NAMES: Record<string, string> = {
   'defense-spending': 'Defense Spending',
   'active-personnel': 'Active Personnel',
   'net-energy-balance': 'Net Energy Balance',
+  'arable-land': 'Arable Land',
+  'freshwater-resources': 'Freshwater Resources',
 };
 
 export default {
