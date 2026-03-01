@@ -12,6 +12,15 @@ const INDICATOR_CODES: Record<string, string> = {
   'net-energy-balance': 'EG.IMP.CONS.ZS',
   'arable-land': 'AG.LND.ARBL.HA.PC',
   'freshwater-resources': 'ER.H2O.INTR.PC',
+  'population': 'SP.POP.TOTL',
+  'population-growth': 'SP.POP.GROW',
+  'fertility-rate': 'SP.DYN.TFRT.IN',
+  'net-migration': 'SM.POP.NETM',
+  'life-expectancy': 'SP.DYN.LE00.IN',
+  'age-dependency': 'SP.POP.DPND',
+  'labor-force': 'SL.TLF.ACTI.ZS',
+  'population-65-plus': 'SP.POP.65UP.TO.ZS',
+  'population-0-14': 'SP.POP.0014.TO.ZS',
 };
 
 const INDICATOR_NAMES: Record<string, string> = {
@@ -28,6 +37,15 @@ const INDICATOR_NAMES: Record<string, string> = {
   'net-energy-balance': 'Net Energy Balance',
   'arable-land': 'Arable Land',
   'freshwater-resources': 'Freshwater Resources',
+  'population': 'Population',
+  'population-growth': 'Population Growth',
+  'fertility-rate': 'Fertility Rate',
+  'net-migration': 'Net Migration',
+  'life-expectancy': 'Life Expectancy',
+  'age-dependency': 'Age Dependency',
+  'labor-force': 'Labor Force',
+  'population-65-plus': 'Population 65+',
+  'population-0-14': 'Population 0-14',
 };
 
 export default {
